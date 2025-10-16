@@ -30,7 +30,9 @@ cd GanttApp
 
 (Note: Replace [YOUR_REPOSITORY_URL_HERE] with the actual URL of your Git repository.)
 
-2. Install Dependencies
+2. Install Dependencies (Crucial Step)
+
+IMPORTANT: This step downloads the electron and electron-packager programs necessary to run and build the application. If you skip this, the commands in the next section will fail.
 
 Install the Electron framework and the Electron Packager (used for building the executable) from the package.json file:
 
