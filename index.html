@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gantt Chart Generator</title>
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Custom styles for better aesthetics */
+        :root {
+            font-family: 'Inter', sans-serif;
+        }
+        .app-container {
+            min-height: 100vh;
+        }
+        .chart-container {
+            border: 1px solid #e5e7eb;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.06);
+            border-radius: 0.5rem;
+        }
+        /* Style for the canvas wrapper to handle responsiveness */
+        #canvas-wrapper {
+            position: relative;
+            width: 100%;
+            height: 500px; /* Default height */
+            background-color: #ffffff;
+            overflow-x: auto;
+        }
+        #gantt-canvas {
+            display: block;
+            /* The width will be set dynamically in JS based on the data span */
+            min-width: 100%;
+        }
+    </style>
+</head>
+<body class="bg-gray-50 text-gray-800 antialiased">
+
+    <div id="app" class="app-container p-4 md:p-8">
+        <header class="text-center mb-8">
+            <h1 class="text-4xl font-extrabold text-indigo-700">Project Timeline Visualizer</h1>
+            <p class="text-lg text-gray-500 mt-2">Generate, customize, and download your Gantt Chart.</p>
+        </header>
+
+        <main class="grid grid-cols-1 lg:grid-cols-3 gap-8 max-w-7xl mx-auto">
+            
+            <!-- Left Panel: Input & Controls -->
+            <div class="lg:col-span-1 space-y-6 bg-white p-6 rounded-xl shadow-lg h-fit">
+                <h2 class="text-2xl font-semibold border-b pb-3 text-indigo-600">Task Manager</h2>
+
+                <!-- Task Input Form -->
+                <form id="task-form" class="space-y-4">
+                    <label class="block">
+                        <span class="text-sm font-medium text-gray-700">Task Name</span>
+                        <input type="text" id="task-name" required placeholder="Design Mockups"
+                               class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 border focus:ring-indigo-500 focus:border-indigo-500">
+                    </label>
+                    <div class="grid grid-cols-2 gap-4">
+                        <label class="block">
+                            <span class="text-sm font-medium text-gray-700">Start Date</span>
+                            <input type="date" id="start-date" required
+                                   class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 border focus:ring-indigo-500 focus:border-indigo-500">
+                        </label>
+                        <label class="block">
+                            <span class="text-sm font-medium text-gray-700">End Date</span>
+                            <input type="date" id="end-date" required
+                                   class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 border focus:ring-indigo-500 focus:border-indigo-500">
+                        </label>
+                    </div>
+                    
+                    <button type="submit"
+                            class="w-full py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition duration-150 ease-in-out">
+                        Add Task
+                    </button>
+                </form>
+
+                <!-- Customization and Download -->
+                <div class="pt-4 border-t border-gray-200 space-y-4">
+                    <h3 class="text-xl font-semibold text-indigo-600">Customize & Export</h3>
+                    <label class="block flex items-center justify-between">
+                        <span class="text-sm font-medium text-gray-700">Chart Color</span>
+                        <input type="color" id="chart-color" value="#4F46E5"
+                               class="w-12 h-8 rounded-md border-gray-300 shadow-sm">
+                    </label>
+                    <button id="download-chart"
+                            class="w-full py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-green-500 hover:bg-green-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 transition duration-150 ease-in-out">
+                        Download Chart (PNG)
+                    </button>
+                    <div id="error-message" class="text-red-500 text-sm hidden"></div>
+                </div>
+
+                <!-- Task List -->
+                <div class="pt-4 border-t border-gray-200">
+                    <h3 class="text-xl font-semibold text-indigo-600 mb-3">Current Tasks (<span id="task-count">0</span>)</h3>
+                    <ul id="task-list" class="space-y-2 max-h-48 overflow-y-auto">
+                        <!-- Tasks will be listed here -->
+                    </ul>
+                </div>
+            </div>
+
+            <!-- Right Panel: Chart Display -->
+            <div class="lg:col-span-2">
+                <div id="canvas-wrapper" class="chart-container overflow-x-auto">
+                    <!-- The canvas will be drawn and dynamically sized here -->
+                    <canvas id="gantt-canvas"></canvas>
+                    <div id="placeholder" class="absolute inset-0 flex items-center justify-center bg-gray-50/70 text-gray-400 text-lg font-medium">
+                        Add tasks using the form to generate the Gantt Chart.
+                    </div>
+                </div>
+            </div>
+
+        </main>
+    </div>
+
+    <script type="module">
+        // --- Configuration and State ---
+        const LOCAL_STORAGE_KEY = 'ganttAppTasks'; // Key for saving data
+        const CHART_HEIGHT_PER_TASK = 50;
+        const CHART_PADDING = 30; // Horizontal padding
+        const TASK_LABEL_WIDTH = 150; // Width reserved for task names
+        const FONT_SIZE = 14;
+        
+        let tasks = [];
+        let chartColor = document.getElementById('chart-color').value;
+
+        // Get DOM Elements
+        const canvas = document.getElementById('gantt-canvas');
+        const ctx = canvas.getContext('2d');
+        const taskForm = document.getElementById('task-form');
+        const taskList = document.getElementById('task-list');
+        const colorInput = document.getElementById('chart-color');
+        const downloadButton = document.getElementById('download-chart');
+        const taskCountSpan = document.getElementById('task-count');
+        const errorMessage = document.getElementById('error-message');
+        const canvasWrapper = document.getElementById('canvas-wrapper');
+        const placeholder = document.getElementById('placeholder');
+
+        // Helper: Convert Date object to milliseconds since epoch
+        const dateToMs = (date) => new Date(date).getTime();
+
+        // Helper: Format date for display
+        const formatDate = (dateMs) => {
+            const date = new Date(dateMs);
+            return `${date.getMonth() + 1}/${date.getDate()}`;
+        };
+
+        // --- Data Persistence Functions ---
+
+        /**
+         * Saves the current tasks array to the browser's local storage.
+         */
+        function saveTasks() {
+            try {
+                // Convert the JavaScript array into a JSON string and store it.
+                localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(tasks));
+            } catch (error) {
+                console.error("Could not save tasks to local storage:", error);
+            }
+        }
+
+        /**
+         * Loads tasks from local storage on startup.
+         */
+        function loadTasks() {
+            try {
+                const storedTasks = localStorage.getItem(LOCAL_STORAGE_KEY);
+                if (storedTasks) {
+                    // Parse the JSON string back into a JavaScript array.
+                    tasks = JSON.parse(storedTasks);
+                }
+            } catch (error) {
+                console.error("Could not load tasks from local storage:", error);
+            }
+        }
+
+        // --- Core Drawing Logic ---
+
+        function drawChart() {
+            if (tasks.length === 0) {
+                // Hide canvas and show placeholder if no tasks exist
+                canvas.style.display = 'none';
+                placeholder.classList.remove('hidden');
+                return;
+            }
+
+            // Show canvas and hide placeholder
+            canvas.style.display = 'block';
+            placeholder.classList.add('hidden');
+            
+            // 1. Calculate Bounds and Scaling
+            const taskMs = tasks.map(t => [dateToMs(t.start), dateToMs(t.end)]).flat();
+            const minMs = Math.min(...taskMs);
+            const maxMs = Math.max(...taskMs);
+            const totalMs = maxMs - minMs;
+
+            // Set dynamic canvas dimensions
+            const numTasks = tasks.length;
+            const canvasHeight = numTasks * CHART_HEIGHT_PER_TASK + CHART_HEIGHT_PER_TASK + 20; // + Header/Footer space
+            
+            // Base chart width: Start with container width
+            const wrapperWidth = canvasWrapper.clientWidth;
+            
+            // Calculate pixel per millisecond (ppm) for initial fit
+            const drawingAreaWidth = wrapperWidth - TASK_LABEL_WIDTH - (CHART_PADDING * 2);
+            let ppm = drawingAreaWidth / totalMs;
+
+            // If the chart is too wide/narrow, adjust width based on a minimum PPM (e.g., 50 pixels per week)
+            const MS_PER_DAY = 1000 * 60 * 60 * 24;
+            const MS_PER_WEEK = MS_PER_DAY * 7;
+            const MIN_PPM_PER_WEEK = 100; // Aim for at least 100px per week
+
+            // If the calculated ppm is too small (chart is too condensed), increase the canvas width
+            const targetPPM = MIN_PPM_PER_WEEK / MS_PER_WEEK;
+            if (ppm < targetPPM) {
+                ppm = targetPPM;
+            }
+
+            // Recalculate full canvas width based on the adjusted PPM
+            const canvasWidth = totalMs * ppm + TASK_LABEL_WIDTH + (CHART_PADDING * 2);
+
+            // Set canvas attributes
+            canvas.width = canvasWidth;
+            canvas.height = canvasHeight;
+            canvasWrapper.style.height = `${canvasHeight}px`; // Ensure wrapper height matches
+
+            // Clear the canvas
+            ctx.clearRect(0, 0, canvasWidth, canvasHeight);
+            
+            ctx.font = `${FONT_SIZE}px Inter, sans-serif`;
+            ctx.textAlign = 'left';
+            
+            const CHART_TOP = CHART_HEIGHT_PER_TASK; // Space for the date header
+            const CHART_BOTTOM = canvasHeight - CHART_HEIGHT_PER_TASK / 2;
+            
+            // 2. Draw Time Grid and Labels (Date Axis)
+
+            const totalDays = Math.ceil(totalMs / MS_PER_DAY);
+            const stepDays = Math.max(1, Math.ceil(totalDays / 15)); // Draw a label every N days (max 15 labels)
+            
+            // Draw horizontal axis line
+            ctx.strokeStyle = '#e5e7eb';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(TASK_LABEL_WIDTH + CHART_PADDING, CHART_TOP);
+            ctx.lineTo(canvasWidth - CHART_PADDING, CHART_TOP);
+            ctx.stroke();
+
+            // Draw vertical grid lines and date labels
+            ctx.fillStyle = '#6b7280';
+            ctx.textAlign = 'center';
+            for (let i = 0; i <= totalDays; i += stepDays) {
+                const currentMs = minMs + i * MS_PER_DAY;
+                const x = TASK_LABEL_WIDTH + CHART_PADDING + (currentMs - minMs) * ppm;
+                
+                // Draw vertical grid line (faint)
+                ctx.strokeStyle = '#f3f4f6';
+                ctx.beginPath();
+                ctx.moveTo(x, CHART_TOP);
+                ctx.lineTo(x, CHART_BOTTOM);
+                ctx.stroke();
+
+                // Draw date label
+                ctx.fillText(formatDate(currentMs), x, CHART_TOP - 10);
+            }
+            
+            // 3. Draw Tasks
+            tasks.forEach((task, index) => {
+                const y = CHART_TOP + index * CHART_HEIGHT_PER_TASK + CHART_HEIGHT_PER_TASK / 2;
+                const startMs = dateToMs(task.start);
+                const endMs = dateToMs(task.end);
+
+                // Calculate X coordinates
+                const xStart = TASK_LABEL_WIDTH + CHART_PADDING + (startMs - minMs) * ppm;
+                const xEnd = TASK_LABEL_WIDTH + CHART_PADDING + (endMs - minMs) * ppm;
+                const width = xEnd - xStart;
+                const height = CHART_HEIGHT_PER_TASK * 0.6;
+                const barY = y - height / 2;
+                const radius = 5;
+
+                // A. Draw Task Name (Left of Chart)
+                ctx.fillStyle = '#374151';
+                ctx.textAlign = 'right';
+                ctx.fillText(task.name, TASK_LABEL_WIDTH - 10, y + FONT_SIZE / 3);
+
+                // B. Draw Task Bar
+                ctx.fillStyle = chartColor;
+                
+                // Draw a rounded rectangle for the task bar
+                ctx.beginPath();
+                ctx.moveTo(xStart + radius, barY);
+                ctx.lineTo(xEnd - radius, barY);
+                ctx.quadraticCurveTo(xEnd, barY, xEnd, barY + radius);
+                ctx.lineTo(xEnd, barY + height - radius);
+                ctx.quadraticCurveTo(xEnd, barY + height, xEnd - radius, barY + height);
+                ctx.lineTo(xStart + radius, barY + height);
+                ctx.quadraticCurveTo(xStart, barY + height, xStart, barY + height - radius);
+                ctx.lineTo(xStart, barY + radius);
+                ctx.quadraticCurveTo(xStart, barY, xStart + radius, barY);
+                ctx.closePath();
+                ctx.fill();
+
+                // C. Draw Separator Line
+                ctx.strokeStyle = '#e5e7eb';
+                ctx.beginPath();
+                ctx.moveTo(TASK_LABEL_WIDTH + CHART_PADDING, y + CHART_HEIGHT_PER_TASK / 2);
+                ctx.lineTo(canvasWidth - CHART_PADDING, y + CHART_HEIGHT_PER_TASK / 2);
+                ctx.stroke();
+            });
+        }
+        
+        // --- Input and Event Handlers ---
+
+        function handleTaskSubmit(e) {
+            e.preventDefault();
+            
+            const name = document.getElementById('task-name').value.trim();
+            const start = document.getElementById('start-date').value;
+            const end = document.getElementById('end-date').value;
+
+            if (!name || !start || !end) return;
+
+            const startMs = dateToMs(start);
+            const endMs = dateToMs(end);
+            
+            // Validation: End date must be after start date
+            if (endMs < startMs) {
+                errorMessage.textContent = "Error: End date must be after or the same as the start date.";
+                errorMessage.classList.remove('hidden');
+                return;
+            } else {
+                errorMessage.classList.add('hidden');
+            }
+
+            tasks.push({ name, start, end });
+            e.target.reset();
+            
+            renderTaskList();
+            drawChart();
+            saveTasks(); // <<< NEW: Save tasks after adding
+        }
+
+        function removeTask(index) {
+            tasks.splice(index, 1);
+            renderTaskList();
+            drawChart();
+            saveTasks(); // <<< NEW: Save tasks after removing
+        }
+
+        function renderTaskList() {
+            taskList.innerHTML = '';
+            taskCountSpan.textContent = tasks.length;
+
+            tasks.forEach((task, index) => {
+                const li = document.createElement('li');
+                li.className = 'flex items-center justify-between p-2 bg-gray-50 rounded-md';
+                li.innerHTML = `
+                    <div class="truncate text-sm">
+                        <strong class="font-medium">${task.name}</strong> 
+                        <span class="text-xs text-gray-500 ml-2">(${formatDate(dateToMs(task.start))} - ${formatDate(dateToMs(task.end))})</span>
+                    </div>
+                    <button class="text-red-500 hover:text-red-700 ml-3" data-index="${index}">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                    </button>
+                `;
+                taskList.appendChild(li);
+            });
+
+            // Attach event listeners to new remove buttons
+            taskList.querySelectorAll('button').forEach(button => {
+                button.addEventListener('click', (e) => {
+                    const index = parseInt(e.currentTarget.dataset.index);
+                    removeTask(index);
+                });
+            });
+        }
+
+        function handleColorChange(e) {
+            chartColor = e.target.value;
+            drawChart();
+        }
+
+        function downloadChart() {
+            if (tasks.length === 0) {
+                errorMessage.textContent = "Cannot download an empty chart. Please add tasks first.";
+                errorMessage.classList.remove('hidden');
+                return;
+            }
+            // Convert canvas content to a PNG data URL
+            const imageURL = canvas.toDataURL("image/png");
+
+            // Create a temporary link element to trigger the download
+            const link = document.createElement('a');
+            link.href = imageURL;
+            link.download = `Gantt_Chart_${new Date().toISOString().slice(0, 10)}.png`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        // --- Initialization and Event Listeners ---
+        taskForm.addEventListener('submit', handleTaskSubmit);
+        colorInput.addEventListener('change', handleColorChange);
+        downloadButton.addEventListener('click', downloadChart);
+        
+        // 1. Load tasks from persistence
+        loadTasks(); 
+        // 2. Render and draw the chart based on loaded data
+        renderTaskList();
+        drawChart();
+
+    </script>
+</body>
+</html>
